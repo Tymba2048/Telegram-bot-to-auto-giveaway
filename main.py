@@ -1,6 +1,5 @@
-"""Точка входа. Оркестрация: диалоги → сканирование (пересылка + подписки inline)."""
+"""Точка входа."""
 import asyncio
-from datetime import datetime, timezone
 
 from telethon import TelegramClient
 
@@ -12,7 +11,7 @@ from forwarder import send_and_pin_today_date
 
 
 async def sync_dialogs(client: TelegramClient) -> None:
-    """Добавляет новые каналы из диалогов аккаунта в БД."""
+    """Добавляет новые каналы из диалогов в БД."""
     print("🔄 Синхронизация диалогов...")
     dialogs = await client.get_dialogs()
     added = 0
@@ -29,7 +28,6 @@ async def sync_dialogs(client: TelegramClient) -> None:
             id=cid,
             title=getattr(entity, "title", "Unknown"),
             username=username,
-            last_checked_at=None,
             is_active=True
         )
         await db.add_or_update_channel(ch)
@@ -46,23 +44,14 @@ async def main() -> None:
     await db.init_db()
 
     async with TelegramClient(config.SESSION_NAME, config.API_ID, config.API_HASH) as client:
-        # 1. Закрепить дату
         await send_and_pin_today_date(client)
-
-        # 2. Подтянуть новые каналы из диалогов
         await sync_dialogs(client)
 
-        # 3. Пометить просроченные розыгрыши
-        await db.mark_giveaways_completed()
-
-        # 4. Сканирование каналов (пересылка + подписки inline)
-        channels = await db.get_channels_to_scan()
+        channels = await db.get_all_active_channels()
         print(f"🔍 К сканированию: {len(channels)} каналов")
 
-        # Кэш подписок за этот запуск, чтобы не дублировать
-        subscribed_cache = set()
         for ch in channels:
-            await scan_channel(client, ch, subscribed_cache)
+            await scan_channel(client, ch)
 
         print("🏁 Цикл завершён")
 
